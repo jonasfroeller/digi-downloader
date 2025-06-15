@@ -10,7 +10,7 @@ import { once } from "node:events";
 chromium.use(Stealth());
 
 /* ───────────────────────── user config ────────────────────────────── */
-const BOOK_TITLE = "Recht IV HAK mit E-Book";
+const BOOK_TITLE = "Unternehmensführung FS 2 mit E-Book";
 const CHROME_EXE =
   process.env.CHROME_PATH ??
   String.raw`C:\Program Files\Google\Chrome\Application\chrome.exe`;
