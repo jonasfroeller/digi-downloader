@@ -2,9 +2,10 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { chromium } from "playwright-extra";
 import Stealth from "puppeteer-extra-plugin-stealth";
-import sharp from "sharp";
-import { PDFDocument } from "pdf-lib";
 import type { BrowserContext, Page, Locator } from "playwright";
+import PDFDocument from "pdfkit";
+import SVGtoPDF from "svg-to-pdfkit";
+import { once } from "node:events";
 
 chromium.use(Stealth());
 
@@ -106,7 +107,7 @@ async function saveSvg(
 }
 
 // -------------------- SVG → PDF --------------------
-async function svgFolderToPdf(dir: string): Promise<void> {
+/* async function svgFolderToPdf(dir: string): Promise<void> {
   const svgFiles = (await fs.readdir(dir))
     .filter((f) => f.toLowerCase().endsWith(".svg"))
     .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
@@ -133,6 +134,75 @@ async function svgFolderToPdf(dir: string): Promise<void> {
   const outFile = path.join(dir, `${path.basename(dir)}.pdf`);
   await fs.writeFile(outFile, await pdf.save());
   console.log(`📄  saved PDF → ${outFile}`);
+} */
+
+export async function svgFolderToPdf(dir: string): Promise<void> {
+  // collect *.svg files in natural order (0001.svg, 0002.svg, …)
+  const svgFiles = (await fs.readdir(dir))
+    .filter((f) => f.toLowerCase().endsWith(".svg"))
+    .sort((a, b) => a.localeCompare(b, undefined, { numeric: true }));
+
+  if (!svgFiles.length) {
+    throw new Error(`no .svg files in “${dir}”`);
+  }
+
+  const outFile = path.join(dir, `${path.basename(dir)}.pdf`);
+  const doc = new PDFDocument({ autoFirstPage: false });
+  const out = (await import("node:fs")).createWriteStream(outFile);
+  doc.pipe(out);
+
+  for (const file of svgFiles) {
+    const svg = await fs.readFile(path.join(dir, file), "utf8");
+
+    // create a fresh page that is exactly as large as the SVG view-box
+    // if width/height are missing we fall back to an A4 page.
+    const { widthPt, heightPt } = getSvgSize(svg) ?? a4();
+    doc.addPage({ size: [widthPt, heightPt] });
+
+    // draw the SVG so that it fills the page
+    SVGtoPDF(doc, svg, 0, 0, { width: widthPt, height: heightPt });
+    console.log(`✓ added ${file}`);
+  }
+
+  doc.end();
+  await once(out, "finish");
+  console.log(`📄  saved PDF → ${outFile}`);
+}
+
+/* ───────────────── helpers ─────────────────────────────────────────── */
+
+function getSvgSize(svg: string): { widthPt: number; heightPt: number } | null {
+  const w = svg.match(/\bwidth="([\d.]+)(\w*)"/i);
+  const h = svg.match(/\bheight="([\d.]+)(\w*)"/i);
+  if (!w || !h) return null;
+
+  return {
+    widthPt: toPt(parseFloat(w[1]), w[2]),
+    heightPt: toPt(parseFloat(h[1]), h[2]),
+  };
+}
+
+function toPt(val: number, unit: string): number {
+  // convert a few common SVG units to PostScript points (1 pt = 1/72 in)
+  switch (unit) {
+    case "": // px – assume 96 dpi
+    case "px":
+      return (val / 96) * 72;
+    case "pt":
+      return val;
+    case "mm":
+      return (val / 25.4) * 72;
+    case "cm":
+      return (val / 2.54) * 72;
+    case "in":
+      return val * 72;
+    default:
+      return val;
+  }
+}
+
+function a4() {
+  return { widthPt: 595.28, heightPt: 841.89 };
 }
 
 // -------------------- main flow --------------------
