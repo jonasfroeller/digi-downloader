@@ -83,7 +83,19 @@ books/
 
 ## 📄 License
 
-MIT License - Use responsibly and in accordance with digi4school.at Terms of Service and applicable copyright laws.
+This project is licensed under the CC BY-NC-SA 4.0 License. See the [LICENSE](LICENSE) file for details.  
+Use responsibly and in accordance with digi4school.at Terms of Service and applicable copyright laws.
+
+### **⚠️ Disclaimer & Warning ⚠️**
+
+This script is intended for **educational purposes only**. It was created to demonstrate web scraping techniques with Playwright on a modern web application.
+
+The content downloaded by this script (i.e., the books from digi4school.at) is **copyrighted**. Downloading and distributing this material may violate the website's Terms of Service and copyright law.
+
+**Use this script at your own risk:**
+* You are solely responsible for your actions and for complying with all applicable laws and the website's terms.
+* Automated scraping may lead to your account being restricted or **banned** by the service provider.
+* The author of this script is not responsible for any misuse or any damages resulting from its use.
 
 ---
 
