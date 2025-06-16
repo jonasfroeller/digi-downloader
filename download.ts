@@ -61,8 +61,8 @@ function safe(name: string): string {
 }
 
 // Windows chokes on file paths longer than ~260 chars unless special handling
-// is enabled.  To stay on the safe side we keep generated file names short and
-// ASCII-only.  For now: strip diacritics, collapse whitespace, cut at 80 chars.
+// is enabled. To stay on the safe side we keep generated file names short and
+// ASCII-only. For now: strip diacritics, collapse whitespace, cut at 80 chars.
 function safeFileName(raw: string, max = 80): string {
   // Quick latin-1 deburring (adequate for German titles)
   const deburr = raw.normalize("NFD").replace(/\p{Diacritic}/gu, "");
@@ -185,7 +185,7 @@ async function inlineAssets(
       const res = await fetch(abs, {
         headers: {
           cookie: await cookieHeader(ctx),
-          accept: "image/svg+xml,image/*;q=0.8,*/*;q=0.5",
+          accept: `${guessMime(abs)},image/avif,image/webp,image/png,image/jpeg,image/*;q=0.8,*/*;q=0.5`,
           referer: svgUrl,
         },
       });
@@ -193,9 +193,49 @@ async function inlineAssets(
         console.error(`asset download failed (${res.status}) → ${abs}`);
         return;
       }
+
+      let mime = res.headers.get("content-type")?.split(";")[0] ?? "";
       const buf = Buffer.from(await res.arrayBuffer());
-      const mime =
-        res.headers.get("content-type")?.split(";")[0] ?? guessMime(abs);
+
+      if (!mime.startsWith("image/")) {
+        // Attempt to salvage the real image from an HTML wrapper before giving
+        // up. Many older digi4school pages respond with a minimal HTML page
+        // that only contains an <img> tag pointing at the actual raster file.
+        const text = buf.toString("utf8");
+        const imgMatch = text.match(/<img[^>]+src=["']([^"']+)["']/i);
+        if (imgMatch) {
+          const imgAbs = new URL(imgMatch[1], abs).href;
+          try {
+            const imgRes = await fetch(imgAbs, {
+              headers: {
+                cookie: await cookieHeader(ctx),
+                accept: `${guessMime(imgAbs)},image/*;q=0.9,*/*;q=0.5`,
+                referer: abs,
+              },
+            });
+            if (imgRes.ok) {
+              mime = imgRes.headers.get("content-type")?.split(";")[0] ?? "";
+              if (mime.startsWith("image/")) {
+                const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+                const dataUri = `data:${mime};base64,${imgBuf.toString("base64")}`;
+
+                svgText = svgText.split(ref).join(`data:${mime};base64,${imgBuf.toString("base64")}`);
+                return;
+              }
+            }
+          } catch {
+            /* ignore and continue to transparent placeholder */
+          }
+        }
+
+        console.warn(`⚠️  non-image asset (${mime || "unknown"}) → ${abs}`);
+        // Minimal PNG (1x1 transparent)
+        mime = "image/png";
+        const transparentPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR4nGNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+        svgText = svgText.split(ref).join(`data:${mime};base64,${transparentPngBase64}`);
+        return;
+      }
+
       const dataUri = `data:${mime};base64,${buf.toString("base64")}`;
       svgText = svgText.split(ref).join(dataUri);
     }),
@@ -231,6 +271,47 @@ async function saveSvg(
   } else {
     // Prefer direct SVG, otherwise try to extract SVG markup from an HTML body.
     svg = raw.trim().startsWith("<svg") ? raw : extractSvgMarkup(raw);
+  }
+
+  if (!svg) {
+    // Attempt to recover from HTML wrapper pages that display the real content
+    // as a plain <img> tag (common for older/non-SVG books). Extract the
+    // image URL, download it and wrap it into a simple SVG.
+    const imgMatch = raw.match(/<img[^>]+src=["']([^"']+)["']/i);
+    if (imgMatch) {
+      const imgAbs = new URL(imgMatch[1], abs).href;
+      try {
+        const imgRes = await fetch(imgAbs, {
+          headers: {
+            cookie: await cookieHeader(ctx),
+            accept: `${guessMime(imgAbs)},image/*;q=0.9,*/*;q=0.5`,
+            referer: abs,
+          },
+        });
+        if (imgRes.ok) {
+          const imgCt = imgRes.headers.get("content-type")?.split(";")[0] ?? "";
+          if (imgCt.startsWith("image/")) {
+            const imgBuf = Buffer.from(await imgRes.arrayBuffer());
+            const dataUri = `data:${imgCt};base64,${imgBuf.toString("base64")}`;
+
+            // Try to get the actual pixel dimensions from the HTML <title>
+            // string, e.g. "2.jpg (709×63)" or fallback to a sensible A4-ish
+            // portrait size if parsing fails.
+            let widthAttr = "816";
+            let heightAttr = "1056";
+            const dimMatch = raw.match(/\((\d+)\s*[×xX]\s*(\d+)\)/);
+            if (dimMatch) {
+              widthAttr = dimMatch[1];
+              heightAttr = dimMatch[2];
+            }
+
+            svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${widthAttr}" height="${heightAttr}"><image href="${dataUri}" width="${widthAttr}" height="${heightAttr}"/></svg>`;
+          }
+        }
+      } catch {
+        /* ignore and fall through to placeholder */
+      }
+    }
   }
 
   if (!svg) {
@@ -416,21 +497,49 @@ async function downloadBook(
 
   const reader: Page = maybeNewTab ?? listPage;
   reader.setDefaultTimeout(60_000);
+
+  const folder = path.join("books", safe(title));
+  await fs.mkdir(folder, { recursive: true });
+
+  const seenSvgs = new Set<string>();
+  let recording = false;
+
+  const respHandler = async (res: any) => {
+    if (!recording) return;
+    const u = res.url();
+    if (!u.toLowerCase().endsWith(".svg")) return;
+    try {
+      const fileName = path.basename(new URL(u).pathname);
+      if (!/^\d+\.svg$/i.test(fileName)) return;
+      if (seenSvgs.has(fileName)) return;
+
+      let svgText = (await res.body()).toString("utf8");
+
+      svgText = await inlineAssets(ctx, svgText, u);
+      svgText = fixDashArrays(svgText);
+      svgText = sanitizeSvg(svgText);
+
+      const num = fileName.replace(/\.svg$/i, "");
+      const outName = `${num.padStart(4, "0")}.svg`;
+      await fs.writeFile(path.join(folder, outName), svgText);
+      seenSvgs.add(fileName);
+      console.log(`✓ page ${num}`);
+    } catch {
+      /* ignore */
+    }
+  };
+
+  reader.on("response", respHandler);
   await reader.waitForURL(/\/(reader|ebook)\//);
   await reader.waitForLoadState("domcontentloaded");
-
-  // Jump to page=1 so the first SVG appears immediately. Some books, however,
-  // keep the real pages under a "/1/index.html" sub-path. We try the standard
-  // URL first and fall back to that variant if no SVG shows up quickly.
-
+  await maybeDismissTour(reader);
   const baseUrl = new URL(reader.url());
   baseUrl.searchParams.set("page", "1");
-
+  recording = true;
   await reader.goto(baseUrl.toString(), { waitUntil: "domcontentloaded" });
+  await maybeDismissTour(reader);
 
   try {
-    // If the typical SVG object does not appear within 5 s, assume we are on
-    // the overview page and load the alternate page path.
     await reader.waitForSelector("object[type='image/svg+xml']", {
       timeout: 5_000,
     });
@@ -440,10 +549,8 @@ async function downloadBook(
       : baseUrl.pathname;
     const alt = `${baseUrl.origin}${pathNoSlash}/1/index.html?page=1`;
     await reader.goto(alt, { waitUntil: "domcontentloaded" });
+    await maybeDismissTour(reader);
   }
-
-  const folder = path.join("books", safe(title));
-  await fs.mkdir(folder, { recursive: true });
 
   const next: Locator = reader.locator("#btnNext");
   let p = 1;
@@ -456,28 +563,6 @@ async function downloadBook(
 
     const sel = `object[type='image/svg+xml'][data*='${p}.svg']`;
     await reader.waitForSelector(sel, { state: "attached" });
-
-    const obj = reader.locator(sel).first();
-    const rel = await obj.getAttribute("data");
-    if (!rel) break;
-
-    // The `data` attribute is often a bare filename like "1.svg". When the
-    // current page URL ends with a number (e.g. "/861/1"), treating that as a
-    // *file* causes `new URL(rel, reader.url())` to drop the last segment and
-    // yield "/861/1.svg" – but the correct asset lives in "/861/1/1.svg".
-    // Using the *directory* URL (`new URL('.', …)`) ensures the last segment
-    // is preserved, giving the correct location regardless of whether the
-    // base ends with "index.html", "/reader", or just the page number.
-
-    const pageDir = new URL('.', reader.url()).href; // guarantees trailing '/'
-    const absSvg = new URL(rel, pageDir).href;
-
-    await saveSvg(
-      ctx,
-      absSvg,
-      path.join(folder, `${p.toString().padStart(4, "0")}.svg`),
-    );
-    console.log(`✓ page ${p}`);
 
     const last = await next.evaluate(
       (e) =>
@@ -500,6 +585,8 @@ async function downloadBook(
   console.log(
     `🎉  finished "${title}" → ${p} pages in ${((Date.now() - t0) / 1000).toFixed(1)} s`,
   );
+
+  reader.off("response", respHandler);
 
   const conv = convertPdfInChild(folder).catch((err) => {
     console.error(`❌  PDF conversion failed for "${title}":`, err);
