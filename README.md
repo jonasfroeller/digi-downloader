@@ -83,7 +83,7 @@ books/
 
 ## 📄 License
 
-This project is licensed under the CC BY-NC-SA 4.0 License. See the [LICENSE](LICENSE) file for details.  
+This project is licensed under the CC BY-NC-SA 4.0 License. See the [LICENSE](LICENCE) file for details.  
 Use responsibly and in accordance with digi4school.at Terms of Service and applicable copyright laws.
 
 ### **⚠️ Disclaimer & Warning ⚠️**
