@@ -4,79 +4,74 @@ A high-quality book downloader for digi4school.at that preserves vector graphics
 
 ## 🎯 What it does
 
-This tool downloads digital books from digi4school.at by:
+Downloads digital books from digi4school.at by:
+1. Logging into the platform automatically
+2. Finding and opening the specified book(s)
+3. Extracting each page as SVG (vector graphics)
+4. Inlining all assets (images) for offline viewing
+5. Generating a combined PDF file
 
-1. **Automated Login**: Uses your credentials to log into the platform
-2. **Book Navigation**: Finds and opens the specified book in the reader
-3. **SVG Extraction**: Downloads each page as an SVG file
-4. **Asset Inlining**: Downloads and embeds all referenced images/fonts directly into the SVGs
-5. **PDF Generation**: Combines all SVGs into a single, high-quality PDF
+## ✨ Features
 
-## ✨ Key Features
+- **Vector-based output**: Maintains crisp, scalable graphics
+- **Stealth browsing**: Anti-detection to avoid bot blocking
+- **Multiple books**: Download single books, lists, or all available
+- **Automatic pagination**: Handles multi-page books seamlessly
+- **Compact files**: 45MB for 356 pages vs 1GB for rasterized images
 
-- **Vector-based output**: Maintains crisp, scalable graphics (45MB for 356 pages vs 1GB rasterized)
-- **Stealth browsing**: Uses anti-detection techniques to appear as a regular user
-- **Asset embedding**: All images and fonts are inlined for offline viewing
-- **Automatic pagination**: Handles multi-page books automatically
-- **Human-like behavior**: Implements delays and natural navigation patterns
+## 🤔 Why so complicated?
 
-## 🚀 Performance
+digi4school.at has bot detection that returns HTTP 450 errors during login if it detects automated behavior. This tool uses:
+- `puppeteer-extra-plugin-stealth` to mask automation signatures
+- Persistent browser profiles to maintain session state
+- Natural timing patterns to mimic human behavior
+- Real Chrome browser instead of headless automation
 
-- **Download speed**: ~249 seconds for 356 pages
-- **PDF generation**: ~250 seconds additional processing
-- **File size**: Extremely efficient vector-based PDFs (45MB vs 1GB for rasterized)
+Without these measures, the platform blocks automated access attempts.
 
 ## 📋 Prerequisites
 
 - [Bun](https://bun.sh/) runtime
-- Google Chrome browser
+- [Google Chrome](https://www.google.com/chrome/index.html) browser
 - digi4school.at account
 
-## 🛠️ Installation
+## 🛠️ Setup
 
-1. Clone the repository:
+1. Clone and install:
 ```bash
 git clone https://github.com/jonasfroeller/digi-downloader.git
 cd digi-downloader
+ni
 ```
 
-2. Install dependencies:
-```bash
-ni
+2. Create `.env` file:
+```env
+EMAIL=your.email@example.com
+PASSWORD=your_password
+BOOK_TITLE=Your Book Title
 ```
 
 ## ⚙️ Configuration
 
-1. **Environment Variables**: Create a `.env` file:
+**Book Selection** via `BOOK_TITLE` in `.env`:
+- Single title: `BOOK_TITLE=My Book`
+- Multiple titles: `BOOK_TITLE=Book A;Book B`
+- JSON array: `BOOK_TITLE=["Book A","Book B"]`
+- All books: `BOOK_TITLE=null` (downloads everything not yet in `./books`)
+
+**Optional settings**:
 ```env
-EMAIL=your.email@example.com
-PASSWORD=your_password
 CHROME_PATH=C:\Program Files\Google\Chrome\Application\chrome.exe
 CHROME_PROFILE=C:\Users\YourUser\AppData\Local\digi4school-profile
-LOCALAPPDATA="C:\Users\YourUser\AppData\Local"
-```
-
-2. **Book Selection**: Edit the `BOOK_TITLE` variable in `download.ts`:
-```typescript
-const BOOK_TITLE = "Your Book Title Here";
 ```
 
 ## 🚀 Usage
 
-Run the downloader:
 ```bash
 bun run download.ts
 ```
 
-The tool will:
-1. Open Chrome and log you into digi4school.at
-2. Navigate to your specified book
-3. Download all pages as SVG files to `books/[Book Title]/`
-4. Generate a PDF file in the same directory
-5. Keep the browser open for manual inspection
-
-## 📁 Output Structure
-
+Output structure:
 ```
 books/
 └── Your Book Title/
@@ -86,46 +81,10 @@ books/
     └── Your Book Title.pdf
 ```
 
-## 🔧 Technical Details
-
-### Dependencies
-- **Playwright**: Browser automation with stealth capabilities
-- **PDFKit**: PDF generation from SVG sources
-- **SVGtoPDF**: Vector-to-PDF conversion library
-
-### Process Flow
-1. Launch persistent Chrome context with stealth plugin
-2. Authenticate with digi4school.at
-3. Navigate to book reader interface
-4. Extract SVG URLs for each page
-5. Download and process SVGs (inline external assets)
-6. Fix SVG compatibility issues (dash arrays, etc.)
-7. Generate combined PDF with proper page sizing
-
-### Anti-Detection Features
-- Uses `puppeteer-extra-plugin-stealth`
-- Persistent browser profile
-- Natural timing and navigation patterns
-- Realistic user agent and headers
-
-## ⚠️ Legal Notice
-
-This tool is for educational purposes and personal backup of legitimately purchased content. Users are responsible for complying with:
-- digi4school.at Terms of Service
-- Copyright laws in their jurisdiction
-- Educational licensing agreements
-
-## 🤝 Contributing
-
-1. Fork the repository
-2. Create a feature branch (feat/your-feature, bug/your-bugfix)
-3. Make your changes
-4. Submit a pull request
-
 ## 📄 License
 
-This project is open source. Please use responsibly and in accordance with applicable laws and terms of service.
+MIT License - Use responsibly and in accordance with digi4school.at Terms of Service and applicable copyright laws.
 
 ---
 
-**Note**: This tool maintains the browser session for manual verification. Press `Ctrl+C` to quit when finished.
+**Note**: Browser stays open for manual verification. Press `Ctrl+C` to quit.
